@@ -10,6 +10,7 @@ edited: V0.4 18 August 2014, Maurice Snell:
 - Fixed bug with writing output when user cancels optimisation.
  edited: 15 Jan 2019 PWH: converted to python3
  edited: v0.9 24 Aug 2021 PWH: fixed bug with pdf export
+ edited: v0.10 26 Aug 2021 PWH: add dot path for Windows
 
  reorder Gramps dot file to minimise crossings in relationship chart
  usage:
@@ -30,13 +31,12 @@ import sys
 import signal
 import time
 import os
-
-dot_markup = ""
+import platform
 
 
 def signal_handler(thesignal, frame):
     print('Ctrl+C pressed! Writing files and aborting...')
-    write_files(dot_markup)
+    write_files(dot_markup, dot)
     sys.exit(0)
 
 
@@ -81,8 +81,8 @@ def parse():
 
 
 # function to return number of crossings for given dot file
-def crossings(df):
-    cmd = ['dot', '-v', '-Tpdf', '-o', os.devnull]
+def crossings(df, dot):
+    cmd = [dot, '-v', '-Tpdf', '-o', os.devnull]
     result = subprocess.run(cmd, capture_output=True, text=True, input=''.join(df), encoding='utf-8')
     line = ''
     for l in result.stderr.split('\n'):  # iterate through output to find line with number of crossings
@@ -97,7 +97,7 @@ def crossings(df):
     return int(line[p1 + 1:p2 - 1])
 
 
-def write_files(df):
+def write_files(df, dot):
     file_base = sys.argv[1]
     file_dot = file_base[:-4] + "1.dot"
     file_pdf = file_base[:-4] + "1.pdf"
@@ -105,7 +105,7 @@ def write_files(df):
     with open(file_dot, 'w', encoding='utf-8') as f:
         f.write(''.join(df))
     print("Generating output pdf file:", file_pdf)
-    cmd = ['dot', '-v', '-Tpdf', '-o', file_pdf]
+    cmd = [dot, '-v', '-Tpdf', '-o', file_pdf]
     subprocess.run(cmd, capture_output=True, text=True, input=''.join(df), encoding='utf-8')
     print(f"Crossings reduced from {nr_cross_original} to {nr_cross_best},",
           "runtime=%0.2f seconds," % (time.time() - startTime), f"iterations= {iterations}")
@@ -122,15 +122,30 @@ def initial_span(n):
     return int(s / 2)
 
 
+# find path for dot executable in Windows
+# might not work if multiple versions of Gramps are installed in Windows
+def dot_path():
+    path = "dot"
+    if platform.system() == "Windows":
+        path = "C:\\Program Files\\"
+        directories = os.listdir(path)
+        for app in directories:
+            if app[:5] == "Gramp":
+                path += app + "\\dot.exe"
+                break
+    return path
+
+
 if __name__ == "__main__":
     startTime = time.time()
     header, people, families, spouses, links = parse()
 
     nsize = len(people)
     span = initial_span(nsize)
+    dot = dot_path()
 
     new_people = []
-    nr_cross_best = crossings(header + people + links + spouses + families)
+    nr_cross_best = crossings(header + people + links + spouses + families, dot)
     print(f"people= {nsize}, initial span= {span}, initial crossings= {nr_cross_best}")
     nr_cross_new = nr_cross_best
     nr_cross_original = nr_cross_best
@@ -146,7 +161,7 @@ if __name__ == "__main__":
             new_people[i] = new_people[i + span]
             new_people[i + span] = tmp
             dot_markup = header + new_people + links + spouses + families
-            nr_cross_new = crossings(dot_markup)
+            nr_cross_new = crossings(dot_markup, dot)
             iterationTime = time.time() - iterationsStartTime
             if iterationTime < shortestTime:
                 shortestTime = iterationTime
@@ -162,4 +177,4 @@ if __name__ == "__main__":
             if nr_cross_best == 0:
                 break
         span = int(span / 2)
-    write_files(header + people + links + spouses + families)
+    write_files(header + people + links + spouses + families, dot)
