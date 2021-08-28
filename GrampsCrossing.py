@@ -1,19 +1,9 @@
 #!/usr/bin/python3
 """
-Author: Peter Hewett
-Contributors: Filipe Correia, Maurice Snell
-Copyright GPL 2012 - 2021
-edited: 10 March 2014
-edited: V0.4 18 August 2014, Maurice Snell:
-- Made Windows compatible, not restested on *nix but should still work.
-- Increased & clarified output messages
-- Fixed bug with writing output when user cancels optimisation.
- edited: 15 Jan 2019 PWH: converted to python3
- edited: v0.9 24 Aug 2021 PWH: fixed bug with pdf export
- edited: v0.10 26 Aug 2021 PWH: add dot path for Windows
+Purpose:
+    reorder Gramps dot file to minimise crossings in relationship chart
 
- reorder Gramps dot file to minimise crossings in relationship chart
- usage:
+Usage:
     create a relationship graph in Gramps to produce .gv file
     copy .gv file and this .py file to the same directory
     in that directory, run
@@ -81,9 +71,8 @@ def parse():
 
 
 # function to return number of crossings for given dot file
-def crossings(df, dot):
-    cmd = [dot, '-v', '-Tpdf', '-o', os.devnull]
-    result = subprocess.run(cmd, capture_output=True, text=True, input=''.join(df), encoding='utf-8')
+def crossings(df, command):
+    result = subprocess.run(command, capture_output=True, text=True, input=''.join(df), encoding='utf-8')
     line = ''
     for l in result.stderr.split('\n'):  # iterate through output to find line with number of crossings
         if 'crossings' in l:
@@ -107,8 +96,9 @@ def write_files(df, dot):
     print("Generating output pdf file:", file_pdf)
     cmd = [dot, '-v', '-Tpdf', '-o', file_pdf]
     subprocess.run(cmd, capture_output=True, text=True, input=''.join(df), encoding='utf-8')
+    totalTime = time.time() - startTime
     print(f"Crossings reduced from {nr_cross_original} to {nr_cross_best},",
-          "runtime=%0.2f seconds," % (time.time() - startTime), f"iterations= {iterations}")
+          "runtime=%0.2f seconds," % totalTime, f"iterations= {iterations}")
     print("Average iteration time= %0.2f seconds," % (totalTime / iterations),
           "longest iteration time= %0.2f seconds," % longestTime,
           "shortest iteration time= %0.2f seconds" % shortestTime)
@@ -125,15 +115,16 @@ def initial_span(n):
 # find path for dot executable in Windows
 # might not work if multiple versions of Gramps are installed in Windows
 def dot_path():
-    path = "dot"
-    if platform.system() == "Windows":
-        path = "C:\\Program Files\\"
-        directories = os.listdir(path)
-        for app in directories:
-            if app[:5] == "Gramp":
-                path += app + "\\dot.exe"
-                break
-    return path
+    if platform.system() != "Windows":
+        return "dot"
+
+    paths = ["C:\\Program Files\\", "C:\\Program Files (x86)\\"]
+    name = "dot.exe"
+    for path in paths:
+        for root, _, files in os.walk(path):
+            if name in files:
+                return os.path.join(root, name)
+    sys.exit("Error: dot.exe not found")
 
 
 if __name__ == "__main__":
@@ -143,9 +134,10 @@ if __name__ == "__main__":
     nsize = len(people)
     span = initial_span(nsize)
     dot = dot_path()
+    cmd = [dot, '-v', '-Tpdf', '-o', os.devnull]
 
     new_people = []
-    nr_cross_best = crossings(header + people + links + spouses + families, dot)
+    nr_cross_best = crossings(header + people + links + spouses + families, cmd)
     print(f"people= {nsize}, initial span= {span}, initial crossings= {nr_cross_best}")
     nr_cross_new = nr_cross_best
     nr_cross_original = nr_cross_best
@@ -157,23 +149,20 @@ if __name__ == "__main__":
         for i in range(nsize - span):
             iterationsStartTime = time.time()
             new_people = people[:]
-            tmp = new_people[i]
-            new_people[i] = new_people[i + span]
-            new_people[i + span] = tmp
+            new_people[i + span], new_people[i] = new_people[i], new_people[i + span]
             dot_markup = header + new_people + links + spouses + families
-            nr_cross_new = crossings(dot_markup, dot)
+            nr_cross_new = crossings(dot_markup, cmd)
+            iterations += 1
+            if nr_cross_new < nr_cross_best:
+                people = new_people[:]
+                nr_cross_best = nr_cross_new
             iterationTime = time.time() - iterationsStartTime
             if iterationTime < shortestTime:
                 shortestTime = iterationTime
             if iterationTime > longestTime:
                 longestTime = iterationTime
-            totalTime += iterationTime
-            iterations += 1
             print(f"iterations={iterations} span={span} i={i} best_cross={nr_cross_best}",
                   f"current_cross={nr_cross_new}", "time=%0.2f seconds" % iterationTime)
-            if nr_cross_new < nr_cross_best:
-                people = new_people[:]
-                nr_cross_best = nr_cross_new
             if nr_cross_best == 0:
                 break
         span = int(span / 2)
