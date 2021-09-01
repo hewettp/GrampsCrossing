@@ -113,16 +113,17 @@ def initial_span(n):
 
 
 # find path for dot executable in Windows
-# might not work if multiple versions of Gramps are installed in Windows
 def dot_path():
     if platform.system() != "Windows":
         return "dot"
 
+    print("Searching Windows for dot.exe ...")
     paths = ["C:\\Program Files\\", "C:\\Program Files (x86)\\"]
     name = "dot.exe"
     for path in paths:
         for root, _, files in os.walk(path):
             if name in files:
+                print(f"Found {os.path.join(root, name)}")
                 return os.path.join(root, name)
     sys.exit("Error: dot.exe not found")
 
